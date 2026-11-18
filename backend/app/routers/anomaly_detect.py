@@ -1,4 +1,8 @@
-"""异常检测接口：维护检测规则，覆盖提交校验、标记生效、停用规则等动作。"""
+"""异常检测接口：维护检测规则，覆盖提交校验、标记生效、停用规则等动作。
+
+异常检测信号表（/signals）提供列表、详情、重试与待办处理；
+列表与详情读同一张表，保证工作台和详情页展示相同的业务数据。
+"""
 from __future__ import annotations
 
 import csv
@@ -7,7 +11,7 @@ import io
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.schemas import ActionPayload, ActionResult, DetectPayload, EntryPayload, PageResult
 from app.services.anomaly_detect import AnomalyDetectService
 
 router = APIRouter(prefix="/api/anomaly_detect", tags=["异常检测"])
@@ -65,6 +69,46 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="anomaly_detect.csv"'})
 
 
+@router.get("/signals", response_model=PageResult[dict])
+def list_signals(
+    keyword: str | None = Query(default=None, description="按规则编号检索"),
+    verdict: str | None = Query(default=None, description="正常、越界、零方差越界、数据不足、待重试"),
+    state: str | None = Query(default=None, description="已确认、待复核、待重试"),
+    rule_version: str | None = Query(default=None, description="按规则版本过滤，如 V026"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+) -> PageResult[dict]:
+    """异常检测信号表列表：工作台数据源。必须声明在 /{entry_id} 之前。"""
+    items, total = service.list_signals(
+        keyword=keyword, verdict=verdict, state=state, rule_version=rule_version,
+        page=page, size=size)
+    return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.post("/signals/process_pending", response_model=dict)
+def process_pending_signals() -> dict:
+    """处理信号表待办：残缺残留事务回滚并留档核对，待重试记录连同原因一并返回。"""
+    return service.process_pending()
+
+
+@router.get("/signals/{signal_id}", response_model=dict)
+def get_signal(signal_id: int) -> dict:
+    """信号详情：与列表读同一张表，保证工作台和详情页数据一致。"""
+    signal = service.get_signal(signal_id)
+    if signal is None:
+        raise HTTPException(status_code=404, detail=f"检测信号 {signal_id} 不存在或已归档")
+    return signal
+
+
+@router.post("/signals/{signal_id}/retry", response_model=ActionResult)
+def retry_signal(signal_id: int, payload: DetectPayload) -> ActionResult:
+    """重试待重试信号：沿用同一条记录原地更新；仍无数据时说明原因。"""
+    signal, message = service.retry_signal(signal_id, payload.values)
+    if signal is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=signal)
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条检测规则明细；不存在时给出可读的错误说明。"""
@@ -72,6 +116,12 @@ def get_entry(entry_id: int) -> dict:
     if entry is None:
         raise HTTPException(status_code=404, detail=f"检测规则 {entry_id} 不存在或已归档")
     return entry
+
+
+@router.post("/{entry_id}/detect", response_model=dict)
+def run_detection(entry_id: int, payload: DetectPayload) -> dict:
+    """对一条检测规则执行异常检测，结果完整写入异常检测信号表。"""
+    return service.run_detection(entry_id, payload.values)
 
 
 @router.post("", response_model=ActionResult)

@@ -65,6 +65,12 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="metric_def.csv"'})
 
 
+@router.post("/recalc_thresholds", response_model=dict)
+def recalc_message_thresholds() -> dict:
+    """跨模块联动：读取异常检测信号表的指标标识与基线窗口，复算消息阈值。"""
+    return service.recalc_message_thresholds()
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条指标定义明细；不存在时给出可读的错误说明。"""

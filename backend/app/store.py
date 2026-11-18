@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from app.seed import SEED_ROWS
 
@@ -49,6 +50,24 @@ class Store:
 
     def version(self, module: str) -> int:
         return self._versions.get(module, 1)
+
+    @contextmanager
+    def transaction(self, module: str) -> Iterator[list[dict[str, Any]]]:
+        """单表事务：块内异常时把本次追加的行整体回滚，不留半截残留。"""
+        rows = self.rows(module)
+        marker = len(rows)
+        try:
+            yield rows
+        except Exception:
+            del rows[marker:]
+            raise
+
+    def delete_ids(self, module: str, ids: set[int]) -> int:
+        """按 id 集合删除行，返回删除条数；用于残留记录的事务性清理。"""
+        rows = self.rows(module)
+        before = len(rows)
+        rows[:] = [row for row in rows if int(row.get("id", 0)) not in ids]
+        return before - len(rows)
 
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []

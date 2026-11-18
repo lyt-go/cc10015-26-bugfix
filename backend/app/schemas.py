@@ -35,6 +35,12 @@ class ActionPayload(BaseModel):
     remark: str | None = None
 
 
+class DetectPayload(BaseModel):
+    """执行异常检测的输入：一段历史监控序列，最后一个点为最新值。"""
+
+    values: list[float] = Field(default_factory=list)
+
+
 
 class ExperimentEntry(BaseModel):
     """实验方案明细结构。"""

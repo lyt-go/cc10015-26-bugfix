@@ -8,6 +8,7 @@
       <div class="page-actions">
         <button class="btn primary" data-testid="open-create" type="button" @click="openCreate">登记指标定义</button>
         <button class="btn" data-testid="export" type="button" @click="exportRows">导出指标定义清单</button>
+        <button class="btn" data-testid="recalc-thresholds" type="button" @click="recalcThresholds">复算消息阈值</button>
       </div>
     </header>
 
@@ -165,6 +166,22 @@ async function runAction(action: string, row: Row) {
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '指标定义操作失败'
+  }
+}
+
+async function recalcThresholds() {
+  errorMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/recalc_thresholds`, { method: 'POST' })
+    const payload = await response.json()
+    if (!response.ok || !payload.ok) throw new Error(payload.message || '复算消息阈值失败')
+    const detail = (payload.updated ?? [])
+      .map((item: Row) => `${item['指标编号']}→${item['消息阈值']}`)
+      .join('；')
+    errorMessage.value = detail ? `${payload.message}：${detail}` : payload.message
+    await reload()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '复算消息阈值失败'
   }
 }
 
